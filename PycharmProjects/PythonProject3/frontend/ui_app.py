@@ -3,6 +3,15 @@ import streamlit as st
 import requests
 import pandas as pd
 
+# --- Toggle to switch between local and Render backend ---
+USE_RENDER_BACKEND = True  # 🔁 Change to False to test locally
+
+# --- Set the API URL ---
+if USE_RENDER_BACKEND:
+    api_url = "https://fraud-rtfd.onrender.com/predict"
+else:
+    api_url = "http://127.0.0.1:8000/predict"
+
 # --- Page Setup ---
 st.set_page_config(page_title="RTP Fraud Detection", layout="centered")
 st.title("🔍 Real-Time Payment Fraud Detection")
@@ -37,12 +46,9 @@ if submitted:
             "Payment_Method": payment_method
         }
 
-        st.info("Sending data to fraud detection API...")
+        st.info(f"🔁 Sending data to API at: {api_url}")
 
         try:
-            # 🔁 Use local API or replace with deployed endpoint
-            api_url = "http://127.0.0.1:8000/predict"
-
             response = requests.post(api_url, json=payload)
 
             if response.status_code == 200:
