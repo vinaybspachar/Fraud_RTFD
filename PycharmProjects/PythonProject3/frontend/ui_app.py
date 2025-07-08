@@ -1,85 +1,56 @@
 # ui_app.py
+
 import streamlit as st
 import requests
-import pandas as pd
 
-# --- Toggle to switch between local and Render backend ---
-USE_RENDER_BACKEND = True  # 🔁 Change to False to test locally
+st.set_page_config(page_title="RTP Fraud Detection", page_icon="⚠️")
 
-# --- Set the API URL ---
-if USE_RENDER_BACKEND:
-    api_url = "https://fraud-rtfd.onrender.com/predict"
-else:
-    api_url = "http://127.0.0.1:8000/predict"
+st.title("🚨 Real-Time Fraud Detection (APP & ATO + RTP Drain)")
+st.markdown("This tool detects potential **fraudulent transactions** using both Rule-Based and ML-Based models. SHAP explainability is included.")
 
-# --- Page Setup ---
-st.set_page_config(page_title="RTP Fraud Detection", layout="centered")
-st.title("🔍 Real-Time Payment Fraud Detection")
-
-# --- Transaction Input Form ---
-with st.form("txn_form"):
-    st.subheader("📝 Enter Transaction Details")
-    customer_id = st.text_input("Customer ID")
-    txn_type = st.selectbox("Transaction Type", [
-        "P2P Transfer", "Loan Disbursement",
-        "Member-to-Member Transfer", "Member-to-External Transfer"
+# Input Form
+with st.form("fraud_form"):
+    customer_id = st.text_input("Customer ID", value="CUST8084")
+    transaction_type = st.selectbox("Transaction Type", [
+        "Member-to-Member Transfer", "Member-to-External Transfer",
+        "Loan Repayment", "Loan Disbursement", "RTP"
     ])
-    txn_amount = st.number_input("Transaction Amount (₹)", min_value=0.0, format="%.2f")
+    transaction_amount = st.number_input("Transaction Amount", min_value=0.0, value=1000.0)
     device_type = st.selectbox("Device Type", ["Mobile", "Web", "ATM", "POS"])
-    payment_method = st.selectbox("Payment Method", [
-        "Instant Bank Transfer", "Digital Wallet",
-        "Credit Card", "Debit Card"
-    ])
-    submitted = st.form_submit_button("🚀 Predict Fraud")
 
-# --- Predict Fraud ---
+    submitted = st.form_submit_button("Detect Fraud")
+
 if submitted:
-    if not customer_id:
-        st.warning("Please enter a valid Customer ID.")
-    else:
-        # Prepare request payload
-        payload = {
-            "Customer_ID": customer_id.strip(),
-            "Transaction_Type": txn_type,
-            "Transaction_Amount": txn_amount,
-            "Device_Type": device_type,
-            "Payment_Method": payment_method
-        }
+    # Prepare request payload
+    payload = {
+        "Customer_ID": customer_id,
+        "Transaction_Type": transaction_type,
+        "Transaction_Amount": transaction_amount,
+        "Device_Type": device_type
+    }
 
-        st.info(f"🔁 Sending data to API at: {api_url}")
+    try:
+        # API request to FastAPI backend
+        response = requests.post("http://localhost:8000/predict", json=payload)
+        result = response.json()
 
-        try:
-            response = requests.post(api_url, json=payload)
+        if response.status_code != 200:
+            st.error(f"❌ Error: {result['detail']}")
+        else:
+            # Display results
+            st.success("✅ Prediction Successful!")
 
-            if response.status_code == 200:
-                result = response.json()
+            col1, col2 = st.columns(2)
+            col1.metric("Rule-Based Result", result["rule_based_result"])
+            col2.metric("ML Prediction", result["ml_prediction"])
 
-                # ✅ Prediction Summary
-                st.success(f"🧠 Prediction: **{result['fraud_type']}** (Label: {result['prediction']})")
-                st.info(f"📊 Actual (from DB): **{result['actual_fraud_type']}** (Label: {result['actual_label']})")
+            st.subheader("🔍 SHAP Explanation (Top 3 Features)")
+            st.json(result["top_features"])
 
-                # 📝 Save log to Excel
-                log_entry = {
-                    "Customer_ID": customer_id,
-                    "Transaction_Type": txn_type,
-                    "Transaction_Amount": txn_amount,
-                    "Prediction": result['fraud_type'],
-                    "Actual": result['actual_fraud_type']
-                }
-
-                try:
-                    logs_df = pd.read_excel("fraud_logs.xlsx")
-                    logs_df = pd.concat([logs_df, pd.DataFrame([log_entry])], ignore_index=True)
-                except FileNotFoundError:
-                    logs_df = pd.DataFrame([log_entry])
-
-                logs_df.to_excel("fraud_logs.xlsx", index=False)
-                st.success("📁 Prediction logged successfully.")
-
+            if result["rule_based_result"] in ["APP Fraud", "ATO + RTP Drain"] or "APP Fraud" in result["ml_prediction"] or "ATO + RTP Drain" in result["ml_prediction"]:
+                st.warning("🚨 Email alert has been sent to staff.")
             else:
-                st.error(f"❌ API Error {response.status_code}: {response.text}")
+                st.info("✅ No fraud detected. Email alert not triggered.")
 
-        except requests.exceptions.ConnectionError:
-            st.error("🔌 Could not connect to FastAPI backend. Please ensure it is running.")
-        except Exception as e:
-            st.error(f"⚠️ Unexpected Error: {str(e)}")
+    except Exception as e:
+        st.error(f"⚠️ Internal Error: {str(e)}")
